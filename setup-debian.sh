@@ -267,8 +267,6 @@ END
 	# load on statup
 	update-rc.d php-fastcgi defaults
 	invoke-rc.d php-fastcgi start
-
-	chown www-data:www-data /var/www
 }
 
 function install_iptables {
@@ -301,6 +299,20 @@ function install_iptables {
 -A INPUT -p tcp --dport 80 -j ACCEPT
 -A INPUT -p tcp --dport 443 -j ACCEPT
 
+# IF YOU USE INCOMMING MAIL UN-COMMENT THESE!!!
+
+# Allows POP (and SSL-POP)
+#-A INPUT -p tcp --dport 110 -j ACCEPT
+#-A INPUT -p tcp --dport 995 -j ACCEPT
+
+# SMTP (and SSMTP)
+#-A INPUT -p tcp --dport 25 -j ACCEPT
+#-A INPUT -p tcp --dport 465 -j ACCEPT
+
+# IMAP (and IMAPS)
+#-A INPUT -p tcp --dport 143 -j ACCEPT
+#-A INPUT -p tcp --dport 993 -j ACCEPT
+
 #  Allows SSH connections (only 3 attempts by an IP every 2 minutes, drop the rest to prevent SSH attacks)
 -A INPUT -p tcp -m tcp --dport $1 -m state --state NEW -m recent --set --name DEFAULT --rsource
 -A INPUT -p tcp -m tcp --dport $1 -m state --state NEW -m recent --update --seconds 120 --hitcount 3 --name DEFAULT --rsource -j DROP
@@ -319,14 +331,14 @@ function install_iptables {
 COMMIT
 END
 
-	# Make it executable
-	chmod +x /etc/network/if-pre-up.d/iptables
-
 	# Set these rules to load on startup
 	cat > /etc/network/if-pre-up.d/iptables <<END
 #!/bin/sh
 /sbin/iptables-restore < /etc/iptables.up.rules
 END
+
+	# Make it executable
+	chmod +x /etc/network/if-pre-up.d/iptables
 
 	# Load the rules
 	iptables-restore < /etc/iptables.up.rules
@@ -341,6 +353,11 @@ function base_packages {
 
 # dotdeb has nginx +1.0
 function install_dotdeb {
+
+	# Don't install them twice!
+	if grep -q "dotdeb" /etc/apt/sources.list; then
+		die "dotdeb is already in /etc/apt/sources.list"
+	fi
 
 	# Add the dotdeb sources
 	cat >> /etc/apt/sources.list <<END
@@ -450,6 +467,17 @@ function install_domain {
 		die "Usage: `basename $0` domain <hostname.tld>"
 	fi
 
+	# Don't allow this to happen twice
+	if [ -d "/var/www/$1" ]; then
+		die "Site $1 already exists"
+	fi
+
+	# If the www directory does not exist
+	if [ ! -d "/var/www" ]; then
+		mkdir "/var/www"
+	fi
+
+	# Make the site directory
 	mkdir "/var/www/$1"
 	chown www-data:www-data -R "/var/www/$1"
 
@@ -462,6 +490,14 @@ function install_domain {
 	mysqladmin create "$dbname"
 	echo "GRANT ALL PRIVILEGES ON \`$dbname\`.* TO \`$userid\`@localhost IDENTIFIED BY '$passwd';" | \
 		mysql
+
+	# Save the new MySQL user/pass in a file in that directory
+	echo "Created $userid ($passwd) with all permissions on $dbname"
+	cat > "/var/www/$1/.mysql" <<END
+$userid
+$passwd
+$dbname
+END
 
 	# Setting up Nginx mapping
 	cat > "/etc/nginx/sites-enabled/$1.conf" <<END
@@ -526,8 +562,21 @@ export PATH=/bin:/usr/bin:/sbin:/usr/sbin
 
 check_sanity
 case "$1" in
-exim4)
-	install_exim4
+dotdeb)
+	install_dotdeb
+	;;
+system)
+	remove_unneeded
+	update_upgrade
+	base_packages
+	;;
+optimize)
+	install_dropbear
+	install_dash
+	install_syslogd
+	;;
+iptables)
+	install_iptables $2
 	;;
 mysql)
 	install_mysql
@@ -535,33 +584,37 @@ mysql)
 nginx)
 	install_nginx
 	;;
-iptables)
-	install_iptables $2
-	;;
 php)
 	install_php
 	;;
 domain)
 	install_domain $2
 	;;
-system)
-	remove_unneeded
-	install_dotdeb
-	install_dropbear
-	install_dash
-	update_upgrade
-	base_packages
-	install_syslogd
+exim4)
+	install_exim4
 	;;
 wordpress)
 	install_wordpress $2
 	;;
 *)
-	echo 'Usage:' `basename $0` '[option]'
-	echo 'Available option:'
-	for option in system exim4 mysql nginx php iptables dash domain dropbear wordpress
-	do
-		echo '  -' $option
-	done
+	# Explain each Option
+	echo 'Usage:' `basename $0` '[option] [argument]'
+	echo 'Available options (in recomended order):'
+	echo '  - dotdeb				(install dotdeb apt source for nginx +1.0)'
+	echo '  - system				(remove unneeded, upgrade system)'
+	echo '  - optimize				(install dash, dropbear, and syslogd)'
+	echo '  - iptables	[SSH Port]	(setup basic firewall with HTTP(S) open)'
+	echo '  - mysql					(install MySQL and set root password)'
+	echo '  - nginx					(install nginx and create sample PHP configs)'
+	echo '  - php					(install PHP 5 with APC, GD, cURL, suhosin, mcrypt, and PDO MySQL/SQLite)'
+	echo '  - domain	[HOST]		(/etc/nginx/sites-enabled/[HOST], /var/www/[HOST], and MySQL database)'
+	echo '  - exim4					(install exim4)'
+	echo '  - wordpress				(install latest wordpress, create database, and setup wp-config.php)'
+	echo '  '
+
+	#for option in dotdeb system optimize iptables mysql nginx php domain exim4 wordpress
+	#do
+	#	echo '  -' $option
+	#done
 	;;
 esac
