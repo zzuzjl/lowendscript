@@ -199,7 +199,7 @@ END
 
 function install_php {
 	# PHP core
-	check_install php5-cgi php5-cli
+	check_install php-cgi php5-cgi php5-cli
 	# PHP modules
 	check install php-apc php5-suhosin php5-mysql php5-sqlite php5-curl php5-gd php5-mcrypt
 	# Create startup script
