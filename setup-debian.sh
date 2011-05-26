@@ -150,23 +150,6 @@ function install_nginx {
 server_names_hash_bucket_size 64;
 END
 
-	# Sites that have multiple .php file entry points (nginx < 0.7.27)
-	cat > /etc/nginx/php.old.conf <<END
-index index.html index.php;
-
-# Route all requests for non-existent files to index.php
-if (!-e $request_filename) {
-		rewrite ^/(.*)$ /index.php/$1 last;
-}
-
-# Pass PHP scripts to php-fastcgi listening on port 9000
-location ~ \.php {
-		include fastcgi_params;
-		fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-		fastcgi_pass 127.0.0.1:9000;
-}
-END
-
 	# Sites that have multiple .php file entry points (nginx > 0.7.27)
 	cat > /etc/nginx/php.conf <<END
 index index.html index.php;
@@ -177,7 +160,6 @@ try_files $uri @missing;
 location @missing {
 	rewrite ^ /index.php$request_uri last;
 }
-
 
 # Pass PHP scripts to php-fastcgi listening on port 9000
 location ~ \.php {
@@ -207,6 +189,10 @@ location ^~ /index.php {
 	fastcgi_pass 127.0.0.1:9000;
 }
 END
+
+	echo 'Created /etc/nginx/php.mvc.conf and /etc/nginx/php.conf files for PHP sites'
+	echo 'To use them "include" them in your /etc/nginx/sites-enabled/[site] config'
+	echo ' '
 
 	invoke-rc.d nginx restart
 }
@@ -260,6 +246,9 @@ case "$1" in
 esac
 exit $RETVAL
 END
+
+	echo 'Created /etc/init.d/php-fastcgi startup script which spawns 10 PHP processes'
+	echo ' '
 
 	# Make it executable
 	chmod 755 /etc/init.d/php-fastcgi
@@ -344,6 +333,11 @@ END
 	iptables-restore < /etc/iptables.up.rules
 
 	# You can flush the current rules with /sbin/iptables -F
+	echo 'Created /etc/iptables.up.rules and startup script /etc/network/if-pre-up.d/iptables'
+	echo 'If you make changes you can restore the rules with';
+	echo '/sbin/iptables -F'
+	echo 'iptables-restore < /etc/iptables.up.rules'
+	echo ' '
 }
 
 # Store the starting package list for comparison later
@@ -370,6 +364,9 @@ END
 	wget http://www.dotdeb.org/dotdeb.gpg
 	cat dotdeb.gpg | apt-key add -
 	rm dotdeb.gpg
+
+	echo 'Installed dotdeb in /etc/apt/sources.list'
+	echo ' '
 }
 
 function install_syslogd {
@@ -477,8 +474,14 @@ function install_domain {
 		mkdir "/var/www"
 	fi
 
-	# Make the site directory
+	# If the www/log directory does not exist
+	if [ ! -d "/var/www/log" ]; then
+		mkdir "/var/www/log"
+	fi
+
+	# Make the site directory and site log directory
 	mkdir "/var/www/$1"
+	mkdir "/var/www/log/$1"
 	chown www-data:www-data -R "/var/www/$1"
 
 	# Setting up the MySQL database
@@ -505,10 +508,16 @@ server {
 	listen 80;
 	server_name $1;
 	root /var/www/$1;
+	access_log /var/www/log/$1/access.log;
+	error_log /var/www/log/$1/error.log;
 	include /etc/nginx/php.mvc.conf;
 }
 END
 	invoke-rc.d nginx reload
+
+	echo "Created /var/www/$1, /var/www/log/$1, and /etc/nginx/sites-enabled/$1.conf"
+	echo ' '
+
 }
 
 
@@ -600,16 +609,16 @@ wordpress)
 	# Explain each Option
 	echo 'Usage:' `basename $0` '[option] [argument]'
 	echo 'Available options (in recomended order):'
-	echo '  - dotdeb				(install dotdeb apt source for nginx +1.0)'
-	echo '  - system				(remove unneeded, upgrade system)'
-	echo '  - optimize				(install dash, dropbear, and syslogd)'
-	echo '  - iptables	[SSH Port]	(setup basic firewall with HTTP(S) open)'
-	echo '  - mysql					(install MySQL and set root password)'
-	echo '  - nginx					(install nginx and create sample PHP configs)'
-	echo '  - php					(install PHP 5 with APC, GD, cURL, suhosin, mcrypt, and PDO MySQL/SQLite)'
-	echo '  - domain	[HOST]		(/etc/nginx/sites-enabled/[HOST], /var/www/[HOST], and MySQL database)'
-	echo '  - exim4					(install exim4)'
-	echo '  - wordpress				(install latest wordpress, create database, and setup wp-config.php)'
+	echo '  - dotdeb	(install dotdeb apt source for nginx +1.0)'
+	echo '  - system	(remove unneeded, upgrade system)'
+	echo '  - optimize	(install dash, dropbear, and syslogd)'
+	echo '  - iptables	(setup basic firewall with HTTP(S) open)'
+	echo '  - mysql		(install MySQL and set root password)'
+	echo '  - nginx		(install nginx and create sample PHP configs)'
+	echo '  - php		(install PHP 5 with APC, GD, cURL, suhosin, mcrypt, and PDO MySQL/SQLite)'
+	echo '  - domain	(/etc/nginx/sites-enabled/[HOST], /var/www/[HOST], and MySQL database)'
+	echo '  - exim4		(install exim4)'
+	echo '  - wordpress	(install latest wordpress, create database, and setup wp-config.php)'
 	echo '  '
 
 	#for option in dotdeb system optimize iptables mysql nginx php domain exim4 wordpress
