@@ -203,7 +203,7 @@ function install_php {
 	# PHP modules
 	check install php-apc php5-suhosin php5-mysql php5-sqlite php5-curl php5-gd php5-mcrypt
 	# Create startup script
-	cat > /etc/init.d/php-fastcgi '#!/bin/bash
+	echo '#!/bin/bash
 BIND=127.0.0.1:9000
 USER=www-data
 PHP_FCGI_CHILDREN=10
@@ -243,7 +243,7 @@ case "$1" in
 	  exit 1
   ;;
 esac
-exit $RETVAL'
+exit $RETVAL' > /etc/init.d/php-fastcgi
 
 	echo 'Created /etc/init.d/php-fastcgi startup script which spawns 10 PHP processes'
 	echo ' '
