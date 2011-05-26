@@ -154,11 +154,11 @@ END
 	cat > /etc/nginx/php.conf <<END
 index index.html index.php;
 
-try_files $uri @missing;
+try_files \$uri @missing;
 
 # Route all requests for non-existent files to index.php
 location @missing {
-	rewrite ^ /index.php$request_uri last;
+	rewrite ^ /index.php\$request_uri last;
 }
 
 # Pass PHP scripts to php-fastcgi listening on port 9000
@@ -172,15 +172,15 @@ END
 	cat > /etc/nginx/php.mvc.conf <<END
 index index.html index.php;
 
-try_files $uri @missing;
+try_files \$uri @missing;
 
 location @missing {
-	rewrite ^ /index.php$request_uri last;
+	rewrite ^ /index.php\$request_uri last;
 }
 
 # This will only run if the below location doesn't, so anything other than /index.php
 location ~ \.php {
-	rewrite ^ /index.php$request_uri last;
+	rewrite ^ /index.php\$request_uri last;
 }
 
 # Only send index.php requests to PHP-fastcgi
@@ -613,11 +613,11 @@ wordpress)
 	echo '  - system	(remove unneeded, upgrade system)'
 	echo '  - optimize	(install dash, dropbear, and syslogd)'
 	echo '  - iptables	(setup basic firewall with HTTP(S) open)'
-	echo '  - mysql		(install MySQL and set root password)'
-	echo '  - nginx		(install nginx and create sample PHP configs)'
+	echo '  - mysql	(install MySQL and set root password)'
+	echo '  - nginx	(install nginx and create sample PHP configs)'
 	echo '  - php		(install PHP 5 with APC, GD, cURL, suhosin, mcrypt, and PDO MySQL/SQLite)'
-	echo '  - domain	(/etc/nginx/sites-enabled/[HOST], /var/www/[HOST], and MySQL database)'
-	echo '  - exim4		(install exim4)'
+	echo '  - domain	(create /etc/nginx/sites-enabled/[HOST], /var/www/[HOST], and MySQL database)'
+	echo '  - exim4	(install exim4)'
 	echo '  - wordpress	(install latest wordpress, create database, and setup wp-config.php)'
 	echo '  '
 
