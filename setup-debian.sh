@@ -259,7 +259,7 @@ esac
 exit $RETVAL
 END
 
-	echo 'Created /etc/init.d/php-fastcgi startup script which spawns 10 PHP processes'
+	echo 'Created /etc/init.d/php-fastcgi startup script which spawns 8 PHP processes'
 	echo ' '
 
 	# Make it executable
@@ -494,7 +494,6 @@ function install_domain {
 	# Make the site directory and site log directory
 	mkdir "/var/www/$1"
 	mkdir "/var/www/log/$1"
-	chown www-data:www-data -R "/var/www/$1"
 
 	# Setting up the MySQL database
 	dbname=`echo $1 | tr . _`
@@ -508,11 +507,18 @@ function install_domain {
 
 	# Save the new MySQL user/pass in a file in that directory
 	echo "Created $userid ($passwd) with all permissions on $dbname"
-	cat > "/var/www/$1/.mysql" <<END
-$userid
-$passwd
-$dbname
+
+	# Create sample database script
+	cat > "/var/www/$1/index.php" <<END
+<?php
+$db = new PDO('mysql:host=localhost;dbname=$dbname', '$userid', '$passwd');
+$db->exec("CREATE TABLE IF NOT EXISTS `test` (`name` varchar(100)) ENGINE=MyISAM");
+$result = $db->query("SHOW TABLES");
+while ($row = $result->fetch()) { var_dump($row); }
 END
+
+	# PHP needs permission to access this
+	chown www-data:www-data -R "/var/www/$1"
 
 	# Setting up Nginx mapping
 	cat > "/etc/nginx/sites-enabled/$1.conf" <<END
