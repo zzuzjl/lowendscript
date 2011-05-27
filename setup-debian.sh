@@ -199,15 +199,27 @@ END
 
 function install_php {
 	# PHP core
-	check_install php-cgi php5-cgi php5-cli
+	check_install php5-cgi php5-cgi
+	check_install php5-cli php5-cli
+
 	# PHP modules
-	check install php-apc php5-suhosin php5-mysql php5-sqlite php5-curl php5-gd php5-mcrypt
+	DEBIAN_FRONTEND=noninteractive apt-get -y install php-apc php5-suhosin php5-curl php5-gd php5-mcrypt php5-mysql php5-sqlite
+
 	# Create startup script
 	cat > /etc/init.d/php-fastcgi <<"END"
 #!/bin/bash
+### BEGIN INIT INFO
+# Provides:          php-fastcgi
+# Required-Start:    networking
+# Required-Stop:     networking
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start the PHP FastCGI processes web server.
+### END INIT INFO
+
 BIND=127.0.0.1:9000
 USER=www-data
-PHP_FCGI_CHILDREN=10
+PHP_FCGI_CHILDREN=8
 PHP_FCGI_MAX_REQUESTS=1000
 
 PHP_CGI=/usr/bin/php-cgi
