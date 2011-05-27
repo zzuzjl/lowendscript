@@ -511,10 +511,10 @@ function install_domain {
 	# Create sample database script
 	cat > "/var/www/$1/index.php" <<END
 <?php
-$db = new PDO('mysql:host=localhost;dbname=$dbname', '$userid', '$passwd');
-$db->exec("CREATE TABLE IF NOT EXISTS `test` (`name` varchar(100)) ENGINE=MyISAM");
-$result = $db->query("SHOW TABLES");
-while ($row = $result->fetch()) { var_dump($row); }
+\$db = new PDO('mysql:host=localhost;dbname=$dbname', '$userid', '$passwd');
+\$db->exec("CREATE TABLE IF NOT EXISTS `test` (`name` varchar(100)) ENGINE=MyISAM");
+\$result = \$db->query("SHOW TABLES");
+while (\$row = \$result->fetch()) { var_dump(\$row); }
 END
 
 	# PHP needs permission to access this
