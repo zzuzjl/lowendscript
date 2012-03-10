@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# This file is altered to favor PHP developers
-
 function check_install {
 	if [ -z "`which "$1" 2>/dev/null`" ]
 	then
@@ -71,10 +69,34 @@ function get_password() {
 	echo ${password:0:13}
 }
 
+function print_info {
+    echo -n -e '\e[1;36m'
+    echo -n $1
+    echo -e '\e[0m'
+}
+
+function print_warn {
+    echo -n -e '\e[1;33m'
+    echo -n $1
+    echo -e '\e[0m'
+}
+
+
+## Installation of Applications
+
+
 function install_dash {
 	check_install dash dash
 	rm -f /bin/sh
 	ln -s dash /bin/sh
+}
+
+function install_nano {
+	check_install nano nano
+}
+
+function install_vim {
+	check_install vim vim
 }
 
 function install_dropbear {
@@ -91,27 +113,64 @@ function install_dropbear {
 service ssh
 {
 	socket_type	 = stream
-	only_from	   = 0.0.0.0
-	wait			= no
-	user			= root
-	protocol		= tcp
-	server		  = /usr/sbin/dropbear
-	server_args	 = -i
-	disable		 = no
+	only_from    = 0.0.0.0
+	wait         = no
+	user         = root
+	protocol     = tcp
+	server       = /usr/sbin/dropbear
+	server_args  = -i
+	disable      = no
 }
 END
 	invoke-rc.d xinetd restart
 }
 
-function install_exim4 {
-	check_install mail exim4
-	if [ -f /etc/exim4/update-exim4.conf.conf ]
-	then
-		sed -i \
-			"s/dc_eximconfig_configtype='local'/dc_eximconfig_configtype='internet'/" \
-			/etc/exim4/update-exim4.conf.conf
-		invoke-rc.d exim4 restart
-	fi
+function install_dotdeb {
+	echo "deb http://packages.dotdeb.org squeeze all" >> /etc/apt/sources.list
+	echo "deb-src http://packages.dotdeb.org squeeze all" >> /etc/apt/sources.list
+	wget -q -O - http://www.dotdeb.org/dotdeb.gpg | apt-key add -
+}
+
+function install_syslogd {
+    # We just need a simple vanilla syslogd. Also there is no need to log to
+    # so many files (waste of fd). Just dump them into
+    # /var/log/(cron/mail/messages)
+    check_install /usr/sbin/syslogd inetutils-syslogd
+    invoke-rc.d inetutils-syslogd stop
+
+    for file in /var/log/*.log /var/log/mail.* /var/log/debug /var/log/syslog
+    do
+        [ -f "$file" ] && rm -f "$file"
+    done
+    for dir in fsck news
+    do
+        [ -d "/var/log/$dir" ] && rm -rf "/var/log/$dir"
+    done
+
+    cat > /etc/syslog.conf <<END
+*.*;mail.none;cron.none -/var/log/messages
+cron.*                  -/var/log/cron
+mail.*                  -/var/log/mail
+END
+
+    [ -d /etc/logrotate.d ] || mkdir -p /etc/logrotate.d
+    cat > /etc/logrotate.d/inetutils-syslogd <<END
+/var/log/cron
+/var/log/mail
+/var/log/messages {
+   rotate 4
+   weekly
+   missingok
+   notifempty
+   compress
+   sharedscripts
+   postrotate
+      /etc/init.d/inetutils-syslogd reload >/dev/null
+   endscript
+}
+END
+
+    invoke-rc.d inetutils-syslogd start
 }
 
 function install_mysql {
@@ -119,15 +178,15 @@ function install_mysql {
 	check_install mysqld mysql-server
 	check_install mysql mysql-client
 
-	# Install a low-end copy of the my.cnf to disable InnoDB, and then delete
-	# all the related files.
+	# Install a low-end copy of the my.cnf to disable InnoDB
 	invoke-rc.d mysql stop
-	rm -f /var/lib/mysql/ib*
 	cat > /etc/mysql/conf.d/lowendbox.cnf <<END
 [mysqld]
 key_buffer = 8M
 query_cache_size = 0
-skip-innodb
+
+ignore_builtin_innodb
+default_storage_engine=MyISAM
 END
 	invoke-rc.d mysql start
 
@@ -142,132 +201,116 @@ END
 	chmod 600 ~/.my.cnf
 }
 
+function install_php {
+	# PHP core
+	check_install php5-fpm php5-fpm
+	check_install php5-cli php5-cli
+
+	# PHP modules
+	DEBIAN_FRONTEND=noninteractive apt-get -y install php-apc php5-suhosin php5-curl php5-gd php5-intl php5-mcrypt php-gettext php5-mysql php5-sqlite
+
+	echo 'Using PHP-FPM to manage PHP processes'
+	echo ' '
+}
+
 function install_nginx {
 	check_install nginx nginx
 
-	# Need to increase the bucket size for Debian 5.
-	cat > /etc/nginx/conf.d/lowendbox.conf <<END
-server_names_hash_bucket_size 64;
-END
+	# PHP-safe default vhost
+	cat > /etc/nginx/sites-available/default_php <<END
+# Creates unlimited domains for PHP sites as long as you add the
+# entry to /etc/hosts and create the matching $host folder.
+server {
+	listen 80 default;
+	server_name _;
+	root /var/www/$host/public;
 
-	# Sites that have multiple .php file entry points (nginx > 0.7.27)
-	cat > /etc/nginx/php.conf <<END
-index index.html index.php;
+	# Directives to send expires headers and turn off 404 error logging.
+	#location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+	#	expires 24h;
+	#	log_not_found off;
+	#}
 
-try_files \$uri @missing;
-
-# Route all requests for non-existent files to index.php
-location @missing {
-	rewrite ^ /index.php\$request_uri last;
-}
-
-# Pass PHP scripts to php-fastcgi listening on port 9000
-location ~ \.php {
-		include fastcgi_params;
-		fastcgi_pass 127.0.0.1:9000;
+	include /etc/nginx/php.conf;
 }
 END
 
 	# MVC frameworks with only a single index.php entry point (nginx > 0.7.27)
-	cat > /etc/nginx/php.mvc.conf <<END
+	cat > /etc/nginx/php.conf <<END
 index index.html index.php;
 
-try_files \$uri @missing;
-
-location @missing {
-	rewrite ^ /index.php\$request_uri last;
+# Route all requests for non-existent files to index.php
+location / {
+	try_files $uri $uri/ /index.php$is_args$args;
 }
 
-# This will only run if the below location doesn't, so anything other than /index.php
-location ~ \.php {
-	rewrite ^ /index.php\$request_uri last;
-}
+# Pass PHP scripts to php-fastcgi listening on port 9000
+location ~ \.php$ {
 
-# Only send index.php requests to PHP-fastcgi
-location ^~ /index.php {
+	# Zero-day exploit defense.
+	# http://forum.nginx.org/read.php?2,88845,page=3
+	# Won't work properly (404 error) if the file is not stored on
+	# this server,  which is entirely possible with php-fpm/php-fcgi.
+	# Comment the 'try_files' line out if you set up php-fpm/php-fcgi
+	# on another machine.  And then cross your fingers that you won't get hacked.
+	try_files $uri =404;
+
 	include fastcgi_params;
 	fastcgi_pass 127.0.0.1:9000;
 }
+# PHP search for file Exploit:
+# The PHP regex location block fires instead of the try_files block. Therefore we need
+# to add "try_files $uri =404;" to make sure that "/uploads/virusimage.jpg/hello.php"
+# never executes the hidden php code inside virusimage.jpg because it can't find hello.php!
+# The exploit also can be stopped by adding "cgi.fix_pathinfo = 0" in your php.ini file.
 END
 
-	echo 'Created /etc/nginx/php.mvc.conf and /etc/nginx/php.conf files for PHP sites'
-	echo 'To use them "include" them in your /etc/nginx/sites-enabled/[site] config'
+	echo 'Created /etc/nginx/php.conf for PHP sites'
+	echo 'Created /etc/nginx/sites-available/default_php sample vhost'
 	echo ' '
 
 	invoke-rc.d nginx restart
 }
 
-function install_php {
-	# PHP core
-	check_install php5-cgi php5-cgi
-	check_install php5-cli php5-cli
+function install_site {
 
-	# PHP modules
-	DEBIAN_FRONTEND=noninteractive apt-get -y install php-apc php5-suhosin php5-curl php5-gd php5-mcrypt php5-mysql php5-sqlite
+	if [ -z "$1" ]
+	then
+		die "Usage: `basename $0` site [domain]"
+	fi
 
-	# Create startup script
-	cat > /etc/init.d/php-fastcgi <<"END"
-#!/bin/bash
-### BEGIN INIT INFO
-# Provides:          php-fastcgi
-# Required-Start:    networking
-# Required-Stop:     networking
-# Default-Start:     2 3 4 5
-# Default-Stop:      0 1 6
-# Short-Description: Start the PHP FastCGI processes web server.
-### END INIT INFO
+    # Setup folder
+	mkdir /var/www/$1
+	mkdir /var/www/$1/public
 
-BIND=127.0.0.1:9000
-USER=www-data
-PHP_FCGI_CHILDREN=8
-PHP_FCGI_MAX_REQUESTS=1000
-
-PHP_CGI=/usr/bin/php-cgi
-PHP_CGI_NAME=`basename $PHP_CGI`
-PHP_CGI_ARGS="- USER=$USER PATH=/usr/bin PHP_FCGI_CHILDREN=$PHP_FCGI_CHILDREN PHP_FCGI_MAX_REQUESTS=$PHP_FCGI_MAX_REQUESTS $PHP_CGI -b $BIND"
-RETVAL=0
-
-start() {
-	  echo -n "Starting PHP FastCGI: "
-	  start-stop-daemon --quiet --start --background --chuid "$USER" --exec /usr/bin/env -- $PHP_CGI_ARGS
-	  RETVAL=$?
-	  echo "$PHP_CGI_NAME."
-}
-stop() {
-	  echo -n "Stopping PHP FastCGI: "
-	  killall -q -w -u $USER $PHP_CGI_NAME
-	  RETVAL=$?
-	  echo "$PHP_CGI_NAME."
-}
-
-case "$1" in
-	start)
-	  start
-  ;;
-	stop)
-	  stop
-  ;;
-	restart)
-	  stop
-	  start
-  ;;
-	*)
-	  echo "Usage: php-fastcgi {start|stop|restart}"
-	  exit 1
-  ;;
-esac
-exit $RETVAL
+	# Setup default index.html file
+	cat > "/var/www/$1/public/index.html" <<END
+Hello World
 END
 
-	echo 'Created /etc/init.d/php-fastcgi startup script which spawns 8 PHP processes'
-	echo ' '
+    # Setting up Nginx mapping
+    cat > "/etc/nginx/sites-available/$1.conf" <<END
+server {
+	listen 80;
+	server_name $1;
+	root /var/www/$1/public;
 
-	# Make it executable
-	chmod 755 /etc/init.d/php-fastcgi
+	# Directives to send expires headers and turn off 404 error logging.
+	#location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+	#	expires 24h;
+	#	log_not_found off;
+	#}
 
-	# load on statup
-	update-rc.d php-fastcgi defaults
-	invoke-rc.d php-fastcgi start
+	include /etc/nginx/php.conf;
+}
+END
+	# Create the link so nginx can find it
+	ln -s /etc/nginx/sites-available/$1.conf /etc/nginx/sites-enabled/$1.conf
+
+	# PHP/Nginx needs permission to access this
+	chown www-data:www-data -R "/var/www/$1"
+
+    service nginx restart
 }
 
 function install_iptables {
@@ -276,7 +319,7 @@ function install_iptables {
 
 	if [ -z "$1" ]
 	then
-		die "Usage: `basename $0` iptables <ssh-port-#>"
+		die "Usage: `basename $0` iptables [ssh-port-#]"
 	fi
 
 	# Create startup rules
@@ -300,7 +343,7 @@ function install_iptables {
 -A INPUT -p tcp --dport 80 -j ACCEPT
 -A INPUT -p tcp --dport 443 -j ACCEPT
 
-# IF YOU USE INCOMMING MAIL UN-COMMENT THESE!!!
+# UN-COMMENT THESE IF YOU USE INCOMING MAIL!
 
 # Allows POP (and SSL-POP)
 #-A INPUT -p tcp --dport 110 -j ACCEPT
@@ -322,12 +365,16 @@ function install_iptables {
 # Allow ping
 -A INPUT -p icmp -m icmp --icmp-type 8 -j ACCEPT
 
-# log iptables denied calls
--A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables denied: " --log-level 7
+# log iptables denied calls (Can grow log files fast!)
+#-A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables denied: " --log-level 7
 
 # Reject all other inbound - default deny unless explicitly allowed policy
--A INPUT -j REJECT
--A FORWARD -j REJECT
+#-A INPUT -j REJECT
+#-A FORWARD -j REJECT
+
+# It's safer to just DROP the packet
+-A INPUT -j DROP
+-A FORWARD -j DROP
 
 COMMIT
 END
@@ -352,235 +399,41 @@ END
 	echo ' '
 }
 
-# Store the starting package list for comparison later
-function base_packages {
-	dpkg --get-selections > packages.txt
-}
-
-# dotdeb has nginx +1.0
-function install_dotdeb {
-
-	# Don't install them twice!
-	if grep -q "dotdeb" /etc/apt/sources.list; then
-		die "dotdeb is already in /etc/apt/sources.list"
-	fi
-
-	# Add the dotdeb sources
-	cat >> /etc/apt/sources.list <<END
-# dotdeb has nginx
-deb http://packages.dotdeb.org stable all
-deb-src http://packages.dotdeb.org stable all
-END
-
-	# Install dotdeb GPG key
-	wget http://www.dotdeb.org/dotdeb.gpg
-	cat dotdeb.gpg | apt-key add -
-	rm dotdeb.gpg
-
-	echo 'Installed dotdeb in /etc/apt/sources.list'
-	echo ' '
-}
-
-function install_syslogd {
-	# We just need a simple vanilla syslogd. Also there is no need to log to
-	# so many files (waste of fd). Just dump them into
-	# /var/log/(cron/mail/messages)
-	check_install /usr/sbin/syslogd inetutils-syslogd
-	invoke-rc.d inetutils-syslogd stop
-
-	for file in /var/log/*.log /var/log/mail.* /var/log/debug /var/log/syslog
-	do
-		[ -f "$file" ] && rm -f "$file"
-	done
-	for dir in fsck news
-	do
-		[ -d "/var/log/$dir" ] && rm -rf "/var/log/$dir"
-	done
-
-	cat > /etc/syslog.conf <<END
-*.*;mail.none;cron.none -/var/log/messages
-cron.*				  -/var/log/cron
-mail.*				  -/var/log/mail
-END
-
-	[ -d /etc/logrotate.d ] || mkdir -p /etc/logrotate.d
-	cat > /etc/logrotate.d/inetutils-syslogd <<END
-/var/log/cron
-/var/log/mail
-/var/log/messages {
-   rotate 4
-   weekly
-   missingok
-   notifempty
-   compress
-   sharedscripts
-   postrotate
-	  /etc/init.d/inetutils-syslogd reload >/dev/null
-   endscript
-}
-END
-
-	invoke-rc.d inetutils-syslogd start
-}
-
-function install_wordpress {
-	check_install wget wget
-	if [ -z "$1" ]
-	then
-		die "Usage: `basename $0` wordpress <hostname>"
-	fi
-
-	# Downloading the WordPress' latest and greatest distribution.
-	mkdir /tmp/wordpress.$$
-	wget -O - http://wordpress.org/latest.tar.gz | \
-		tar zxf - -C /tmp/wordpress.$$
-	mv /tmp/wordpress.$$/wordpress "/var/www/$1"
-	rm -rf /tmp/wordpress.$$
-	chown root:root -R "/var/www/$1"
-
-	# Setting up the MySQL database
-	dbname=`echo $1 | tr . _`
-	userid=`get_domain_name $1`
-	# MySQL userid cannot be more than 15 characters long
-	userid="${userid:0:15}"
-	passwd=`get_password "$userid@mysql"`
-	cp "/var/www/$1/wp-config-sample.php" "/var/www/$1/wp-config.php"
-	sed -i "s/database_name_here/$dbname/; s/username_here/$userid/; s/password_here/$passwd/" \
-		"/var/www/$1/wp-config.php"
-	mysqladmin create "$dbname"
-	echo "GRANT ALL PRIVILEGES ON \`$dbname\`.* TO \`$userid\`@localhost IDENTIFIED BY '$passwd';" | \
-		mysql
-
-	# Setting up Nginx mapping
-	cat > "/etc/nginx/sites-enabled/$1.conf" <<END
-server {
-	server_name $1;
-	root /var/www/$1;
-	include /etc/nginx/fastcgi_php;
-	location / {
-		index index.php;
-		if (!-e \$request_filename) {
-			rewrite ^(.*)$  /index.php last;
-		}
-	}
-}
-END
-	invoke-rc.d nginx reload
-}
-
-
-function install_domain {
-
-	if [ -z "$1" ]
-	then
-		die "Usage: `basename $0` domain <hostname.tld>"
-	fi
-
-	# Don't allow this to happen twice
-	if [ -d "/var/www/$1" ]; then
-		die "Site $1 already exists"
-	fi
-
-	# If the www directory does not exist
-	if [ ! -d "/var/www" ]; then
-		mkdir "/var/www"
-	fi
-
-	# If the www/log directory does not exist
-	if [ ! -d "/var/www/log" ]; then
-		mkdir "/var/www/log"
-	fi
-
-	# Make the site directory and site log directory
-	mkdir "/var/www/$1"
-	mkdir "/var/www/log/$1"
-
-	# Setting up the MySQL database
-	dbname=`echo $1 | tr . _`
-	userid=`get_domain_name $1`
-	# MySQL userid cannot be more than 15 characters long
-	userid="${userid:0:15}"
-	passwd=`get_password "$userid@mysql"`
-	mysqladmin create "$dbname"
-	echo "GRANT ALL PRIVILEGES ON \`$dbname\`.* TO \`$userid\`@localhost IDENTIFIED BY '$passwd';" | \
-		mysql
-
-	# Save the new MySQL user/pass in a file in that directory
-	echo "Created $userid ($passwd) with all permissions on $dbname"
-
-	# Create sample database script
-	cat > "/var/www/$1/index.php" <<END
-<?php
-\$db = new PDO('mysql:host=localhost;dbname=$dbname', '$userid', '$passwd');
-\$db->exec("CREATE TABLE IF NOT EXISTS `test` (`name` varchar(100)) ENGINE=MyISAM");
-\$result = \$db->query("SHOW TABLES");
-while (\$row = \$result->fetch()) { var_dump(\$row); }
-END
-
-	# PHP needs permission to access this
-	chown www-data:www-data -R "/var/www/$1"
-
-	# Setting up Nginx mapping
-	cat > "/etc/nginx/sites-enabled/$1.conf" <<END
-server {
-	listen 80;
-	server_name $1;
-	root /var/www/$1;
-	access_log /var/www/log/$1/access.log;
-	error_log /var/www/log/$1/error.log;
-	include /etc/nginx/php.mvc.conf;
-}
-END
-	invoke-rc.d nginx reload
-
-	echo "Created /var/www/$1, /var/www/log/$1, and /etc/nginx/sites-enabled/$1.conf"
-	echo ' '
-
-}
-
-
-function print_info {
-	echo -n -e '\e[1;36m'
-	echo -n $1
-	echo -e '\e[0m'
-}
-
-function print_warn {
-	echo -n -e '\e[1;33m'
-	echo -n $1
-	echo -e '\e[0m'
-}
-
 function remove_unneeded {
-	# Some Debian have portmap installed. We don't need that.
-	check_remove /sbin/portmap portmap
+    # Some Debian have portmap installed. We don't need that.
+    check_remove /sbin/portmap portmap
 
-	# Remove rsyslogd, which allocates ~30MB privvmpages on an OpenVZ system,
-	# which might make some low-end VPS inoperatable. We will do this even
-	# before running apt-get update.
-	check_remove /usr/sbin/rsyslogd rsyslog
+    # Remove rsyslogd, which allocates ~30MB privvmpages on an OpenVZ system,
+    # which might make some low-end VPS inoperatable. We will do this even
+    # before running apt-get update.
+    check_remove /usr/sbin/rsyslogd rsyslog
 
-	# Other packages that seem to be pretty common in standard OpenVZ
-	# templates.
-	check_remove /usr/sbin/apache2 'apache2*'
-	check_remove /usr/sbin/named bind9
-	check_remove /usr/sbin/smbd 'samba*'
-	check_remove /usr/sbin/nscd nscd
+    # Other packages that seem to be pretty common in standard OpenVZ
+    # templates.
+    check_remove /usr/sbin/apache2 'apache2*'
+    check_remove /usr/sbin/named bind9
+    check_remove /usr/sbin/smbd 'samba*'
+    check_remove /usr/sbin/nscd nscd
 
-	# Need to stop sendmail as removing the package does not seem to stop it.
-	if [ -f /usr/lib/sm.bin/smtpd ]
-	then
-		invoke-rc.d sendmail stop
-		check_remove /usr/lib/sm.bin/smtpd 'sendmail*'
-	fi
+    # Need to stop sendmail as removing the package does not seem to stop it.
+    if [ -f /usr/lib/sm.bin/smtpd ]
+    then
+        invoke-rc.d sendmail stop
+        check_remove /usr/lib/sm.bin/smtpd 'sendmail*'
+    fi
 }
 
 function update_upgrade {
-	# Run through the apt-get update/upgrade first. This should be done before
-	# we try to install any package
-	apt-get -q -y update
-	apt-get -q -y upgrade
+    # Run through the apt-get update/upgrade first. This should be done before
+    # we try to install any package
+    apt-get -q -y update
+    apt-get -q -y upgrade
 }
+
+function update_timezone {
+	dpkg-reconfigure tzdata
+}
+
 
 ########################################################################
 # START OF PROGRAM
@@ -589,22 +442,6 @@ export PATH=/bin:/usr/bin:/sbin:/usr/sbin
 
 check_sanity
 case "$1" in
-dotdeb)
-	install_dotdeb
-	;;
-system)
-	remove_unneeded
-	update_upgrade
-	base_packages
-	;;
-optimize)
-	install_dropbear
-	install_dash
-	install_syslogd
-	;;
-iptables)
-	install_iptables $2
-	;;
 mysql)
 	install_mysql
 	;;
@@ -614,34 +451,35 @@ nginx)
 php)
 	install_php
 	;;
-domain)
-	install_domain $2
+dotdeb)
+	install_dotdeb
 	;;
-exim4)
-	install_exim4
-	;;
-wordpress)
-	install_wordpress $2
+site)
+    install_site $2
+    ;;
+iptables)
+    install_iptables $2
+    ;;
+system)
+	update_timezone
+	remove_unneeded
+	update_upgrade
+	install_dash
+	install_vim
+	install_nano
+	install_syslogd
+	install_dropbear
 	;;
 *)
-	# Explain each Option
 	echo 'Usage:' `basename $0` '[option] [argument]'
 	echo 'Available options (in recomended order):'
-	echo '  - dotdeb	(install dotdeb apt source for nginx +1.0)'
-	echo '  - system	(remove unneeded, upgrade system)'
-	echo '  - optimize	(install dash, dropbear, and syslogd)'
-	echo '  - iptables	(setup basic firewall with HTTP(S) open)'
-	echo '  - mysql	(install MySQL and set root password)'
-	echo '  - nginx	(install nginx and create sample PHP configs)'
-	echo '  - php		(install PHP 5 with APC, GD, cURL, suhosin, mcrypt, and PDO MySQL/SQLite)'
-	echo '  - domain	(create /etc/nginx/sites-enabled/[HOST], /var/www/[HOST], and MySQL database)'
-	echo '  - exim4	(install exim4)'
-	echo '  - wordpress	(install latest wordpress, create database, and setup wp-config.php)'
+	echo '  - dotdeb    (install dotdeb apt source for nginx +1.0)'
+	echo '  - system    (remove unneeded, upgrade system)'
+	echo '  - iptables  (setup basic firewall with HTTP(S) open)'
+	echo '  - mysql	    (install MySQL and set root password)'
+	echo '  - nginx     (install nginx and create sample PHP vhosts)'
+	echo '  - php       (install PHP5-FPM with APC, GD, cURL, suhosin, etc..)'
+	echo '  - site      (create nginx vhost and /var/www/$site/public)'
 	echo '  '
-
-	#for option in dotdeb system optimize iptables mysql nginx php domain exim4 wordpress
-	#do
-	#	echo '  -' $option
-	#done
 	;;
 esac
