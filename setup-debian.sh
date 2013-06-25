@@ -320,6 +320,22 @@ suhosin.post.max_totalname_length = 8192
 suhosin.sql.bailout_on_error = Off
 END
 
+	mv /etc/php5/fpm/pool.d/www.conf /root/bkps/www.conf
+
+cat > /etc/php5/fpm/pool.d/www.conf <<END
+[www]
+user = www-data
+group = www-data
+listen = /var/run/php5-fpm.sock
+pm = dynamic
+pm.max_children = 5
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+chdir = /
+
+END
+
 	if [ -f /etc/php5/fpm/php.ini ]
 		then
 			sed -i \
