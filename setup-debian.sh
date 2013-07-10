@@ -320,10 +320,6 @@ suhosin.post.max_totalname_length = 8192
 suhosin.sql.bailout_on_error = Off
 END
 
-	cp /etc/php5/fpm/pool.d/www.conf /root/bkps/www.conf
-	cat /root/bkps/www.conf | sed 's#127.0.0.1:9000#"unix:/var/run/php5-fpm.sock/"#' > /etc/php5/fpm/pool.d/www.conf
-
-
 	if [ -f /etc/php5/fpm/php.ini ]
 		then
 			sed -i \
@@ -419,7 +415,7 @@ location ~ \.php$ {
 	fastcgi_temp_file_write_size 256k;
 	fastcgi_intercept_errors    on;
 	fastcgi_ignore_client_abort off;
-	fastcgi_pass   unix:/var/run/php5-fpm.sock;
+	fastcgi_pass 127.0.0.1:9000;
 
 }
 # PHP search for file Exploit:
@@ -435,6 +431,14 @@ END
 	echo 'Created /etc/nginx/php.conf for PHP sites'
 	echo 'Created /etc/nginx/sites-available/default_php sample vhost'
 	echo ' '
+
+ if [ -f /etc/nginx/sites-available/default ]
+	then
+		# Made IPV6 Listener not conflict and throw errors
+		sed -i \
+			"s/listen \[::]:80 default_server;/listen [::]:80 default_server ipv6only=on;/" \
+			/etc/nginx/sites-available/default
+ fi
 
  if [ -f /etc/nginx/nginx.conf ]
 	then
@@ -479,7 +483,7 @@ END
 	# Setting up Nginx mapping
 	cat > "/etc/nginx/sites-available/$1.conf" <<END
 server {
-	listen [::]:80;
+	listen 80;
 	server_name www.$1 $1;
 	root /var/www/$1/public;
 	index index.html index.htm index.php;
@@ -625,7 +629,7 @@ server {
     {
         try_files \$uri =404;
 
-        fastcgi_pass unix:/var/run/php5-fpm.sock;
+        fastcgi_pass 127.0.0.1:9000;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME /var/www/$1/public\$fastcgi_script_name;
         include fastcgi_params;
