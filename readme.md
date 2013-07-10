@@ -1,4 +1,4 @@
-## Debian 6 VPS Script
+## Debian 6/7 VPS Script
 
 Remove excess packages (apache2, sendmail, bind9, samba, nscd, etc) and install the basic components needed for a light-weight HTTP(S) web server:
 
@@ -14,7 +14,7 @@ Remove excess packages (apache2, sendmail, bind9, samba, nscd, etc) and install 
 
 Includes sample nginx config files for PHP sites. You can create a basic site shell (complete with nginx vhost) like this:
 
-./setup-debian.sh site example.com
+	./setup-debian.sh site example.com
 
 When running the iptables or dropbear install you must specify a SSH port. Remember, port 22 is the default. It's recommended that you change this from 22 just to save server load from attacks on that port.
 
@@ -37,6 +37,10 @@ When running the iptables or dropbear install you must specify a SSH port. Remem
 	./setup-debian.sh wordpress [domain.tld]
 	./setup-debian.sh 3proxy 3128
 	./setup-debian.sh 3proxyauth username password
+
+## Development
+
+This repository uses [tagged releases](https://github.com/Xeoncross/lowendscript/releases) and all new additions need to be added to the [development branch](https://github.com/Xeoncross/lowendscript/tree/development).
 
 #### ... and now time for some extras
 
@@ -98,10 +102,11 @@ To reduce ram usage, you may disable APC by moving or deleting the following fil
 - I recommend installing Ajenti and/or Webmin to manage your VPS.
 - For security reasons delete, move or password protect "[domain.tld]/public/phpinfo.php" file, which installed automatically on each new site installation.
 
+
 ## Credits
 
-- [LowEndBox admin (LEA)](https://github.com/lowendbox/lowendscript)
 - [Xeoncross](https://github.com/Xeoncross/lowendscript),
+- [LowEndBox admin (LEA)](https://github.com/lowendbox/lowendscript),
 - [ilevkov](https://github.com/ilevkov/lowendscript),
-- [asimzeeshan](https://github.com/asimzeeshan)
-- and many others!
+- [asimzeeshan](https://github.com/asimzeeshan),
+- and [many others](https://github.com/Xeoncross/lowendscript/graphs/contributors)!
