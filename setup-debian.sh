@@ -543,10 +543,10 @@ function install_wordpress {
 
 	# Downloading the WordPress' latest and greatest distribution.
     mkdir /tmp/wordpress.$$
-    wget --no-check-certificate -O https://wordpress.org/latest.tar.gz | \
-        tar zxf - -C /tmp/wordpress.$$
-    cp -a /tmp/wordpress.$$/wordpress/. "/var/www/$1/public"
-    rm -rf /tmp/wordpress.$$
+    wget --no-check-certificate https://wordpress.org/latest.tar.gz | \
+        tar zxf - -C /tmp/latest.$$
+    cp -a /tmp/latest.$$/wordpress/. "/var/www/$1/public"
+    rm -rf /tmp/latest.$$
 
 	# Setting up the MySQL database
     dbname=`echo $1 | tr . _`
